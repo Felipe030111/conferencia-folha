@@ -1,0 +1,6 @@
+.uploads/
+Fopag 052026/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store

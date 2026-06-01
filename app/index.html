@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nivaldo | Conferencia de Folha</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <form id="uploadForm" class="app">
+      <aside>
+        <div class="logo-box">
+          <img
+            src="https://brasilmarpescados.com/wp-content/uploads/2024/06/Logo-BrasilMar-01.svg"
+            alt="BrasilMar"
+          />
+        </div>
+
+        <div class="menu-label">Folha</div>
+        <div class="menu-item active">Nova Conferencia</div>
+      </aside>
+
+      <main>
+        <section class="topbar">
+          <div class="title-area">
+            <h1>Conferencia de Folha</h1>
+            <p>Compare os lancamentos do mes contra a folha oficial da competencia.</p>
+          </div>
+
+          <div class="competencia-box">
+            <div class="field">
+              <label>Competencia</label>
+              <input required type="month" name="period" value="2026-05" />
+            </div>
+
+            <div class="field">
+              <label>Empresa</label>
+              <select required name="company">
+                <option value="">Selecione</option>
+                <option value="NIVALDO">NIVALDO</option>
+                <option value="TACARE">TACARE</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>Tipo de folha</label>
+              <select name="payroll_type">
+                <option>Folha mensal</option>
+                <option>Adiantamento</option>
+                <option>13 salario</option>
+                <option>Rescisao</option>
+                <option>Complementar</option>
+              </select>
+            </div>
+
+            <button class="btn btn-primary" type="submit">Iniciar conferencia</button>
+          </div>
+        </section>
+
+        <section class="process-flow">
+          <label class="upload-card ref">
+            <span class="tag tag-ref">Arquivo referencia</span>
+            <h3>Folha de Pagamento</h3>
+            <p>Arquivo principal. A planilha de lancamentos sera comparada contra esta folha.</p>
+            <span class="upload-zone">
+              <strong>Selecionar folha da competencia</strong>
+              <small>PDF da folha mensal</small>
+              <input required type="file" name="payroll" accept=".pdf" />
+            </span>
+          </label>
+
+          <label class="upload-card ref">
+            <span class="tag tag-ref">Foco desta etapa</span>
+            <h3>Planilha de Lancamentos</h3>
+            <p>Valida eventos manuais, descontos, adicionais, ajustes e lancamentos avulsos.</p>
+            <span class="upload-zone">
+              <strong>Importar planilha de lancamentos</strong>
+              <small>XLSX</small>
+              <input required type="file" name="launches" accept=".xlsx" />
+            </span>
+          </label>
+
+          <label class="upload-card muted-card">
+            <span class="tag tag-file">Proxima etapa</span>
+            <h3>Emprestimo do Governo</h3>
+            <p>O campo fica preparado, mas a prioridade agora e a planilha de lancamentos.</p>
+            <span class="upload-zone">
+              <strong>Importar arquivo de emprestimos</strong>
+              <small>Opcional</small>
+              <input type="file" name="loans" accept=".pdf" />
+            </span>
+          </label>
+
+          <label class="upload-card muted-card">
+            <span class="tag tag-file">Proxima etapa</span>
+            <h3>Espelho de Ponto</h3>
+            <p>O campo fica disponivel para evoluir a conferencia de ponto depois.</p>
+            <span class="upload-zone">
+              <strong>Importar espelho de ponto</strong>
+              <small>Opcional</small>
+              <input type="file" name="mirror" accept=".pdf" />
+            </span>
+          </label>
+        </section>
+
+        <section class="previous-card">
+          <div>
+            <strong>Folha anterior</strong>
+            <span>Deixe este campo aqui para o proximo mes, quando validarmos a variacao de liquido.</span>
+          </div>
+          <input type="file" name="previous_payroll" accept=".pdf" />
+        </section>
+
+        <section id="summary" class="summary">
+          <div class="kpi">
+            <div class="label">Status</div>
+            <div id="statusValue" class="value red">Pronto</div>
+            <div id="statusLabel" class="desc">Aguardando arquivos</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Competencia</div>
+            <div id="periodKpi" class="value red">05/2026</div>
+            <div class="desc">Mes em conferencia</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Lancamentos</div>
+            <div id="totalKpi" class="value">0</div>
+            <div class="desc">Itens analisados</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Conferidos OK</div>
+            <div id="okKpi" class="value green">0</div>
+            <div class="desc">Encontrados na folha</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Alertas</div>
+            <div id="warningKpi" class="value orange">0</div>
+            <div class="desc">Rubrica pode estar diferente</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Divergencias</div>
+            <div id="errorKpi" class="value red">0</div>
+            <div class="desc">Nao encontrados na folha</div>
+          </div>
+        </section>
+
+        <section class="content">
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Status dos arquivos</h2>
+            </div>
+
+            <div id="statusList" class="status-list">
+              <div class="status-item">
+                <div>
+                  <strong>Folha de Pagamento</strong>
+                  <span>Arquivo obrigatorio</span>
+                </div>
+                <div class="pill pill-alerta">Pendente</div>
+              </div>
+
+              <div class="status-item">
+                <div>
+                  <strong>Planilha de Lancamentos</strong>
+                  <span>Arquivo obrigatorio</span>
+                </div>
+                <div class="pill pill-alerta">Pendente</div>
+              </div>
+            </div>
+
+            <div class="note">
+              A competencia e a empresa selecionadas identificam a conferencia. Nesta fase, o resultado principal e a validacao dos lancamentos do mes contra a folha.
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2>Resultado dos lancamentos</h2>
+              <button class="btn btn-light" type="button" id="exportBtn">Exportar CSV</button>
+            </div>
+
+            <div class="filters">
+              <button class="filter active" type="button" data-filter="all">Todos</button>
+              <button class="filter" type="button" data-filter="error">Divergencias</button>
+              <button class="filter" type="button" data-filter="warning">Alertas</button>
+              <button class="filter" type="button" data-filter="ok">Conferidos OK</button>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Colaborador</th>
+                    <th>Evento</th>
+                    <th>Valor na planilha</th>
+                    <th>Status</th>
+                    <th>Observacao</th>
+                  </tr>
+                </thead>
+                <tbody id="launchRows">
+                  <tr>
+                    <td colspan="5" class="empty">Envie a folha e a planilha para gerar a conferencia.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </form>
+
+    <script src="/script.js"></script>
+  </body>
+</html>
