@@ -37,15 +37,24 @@ LAUNCH_LABELS = {
     "faltas n/ just. dias": ["faltas", "falta"],
     "faltas n/ just.horas": ["faltas", "falta"],
     "inform. vale transp": ["informativa vale transporte"],
-    "vale farmacia": ["vale farmacia", "vale farmácia"],
+    "vale farmacia": ["vale farmacia"],
     "vale": ["vale"],
-    "infor.desp.med.titul": ["desp medicas titular", "desp médicas titular"],
-    "infor.desp.med.depen": ["desp medicas depend", "desp médicas depend"],
+    "infor.desp.med.titul": ["desp medicas titular"],
+    "infor.desp.med.depen": ["desp medicas depend"],
     "inf.des.odonto titul": ["odonto titular"],
     "infor.desp.odo.depen": ["odonto depen"],
     "multa": ["multa"],
     "ajuda de custos": ["ajuda de custos"],
     "interjornada": ["interjornada"],
+}
+
+POINT_EVENT_LABELS = {
+    "Feriado trabalhado": ["feriado trabalhado 100", "feriado trabalhado"],
+    "Horas Noturnas": ["adicional noturno", "horas noturnas"],
+    "HE Feriado": ["feriado trabalhado 100", "he feriado"],
+    "Falta em Dias": ["faltas", "falta"],
+    "Descontos (-) Faltas": ["faltas", "falta"],
+    "Faltas": ["faltas", "falta"],
 }
 
 
@@ -69,9 +78,7 @@ def norm(value: Any) -> str:
 
 
 def parse_decimal(value: Any) -> Decimal | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
+    if value is None or isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
         return Decimal(str(value)).quantize(Decimal("0.01"))
@@ -94,6 +101,13 @@ def money(value: Decimal | None) -> str:
         return "-"
     text = f"{value:,.2f}"
     return "R$ " + text.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def number_pt(value: Decimal | None) -> str:
+    if value is None:
+        return "-"
+    text = f"{value:,.2f}"
+    return text.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def br_number_patterns(value: Decimal) -> list[str]:
@@ -134,11 +148,7 @@ def parse_launches(path: Path) -> dict[str, Any]:
             values.append({"label": str(label), "amount": amount})
         employees.append(EmployeeLaunch(code=code, name=name, values=values))
 
-    return {
-        "company": str(company),
-        "period": str(period),
-        "employees": employees,
-    }
+    return {"company": str(company), "period": str(period), "employees": employees}
 
 
 def find_employee_segments(payroll_text: str, employees: list[EmployeeLaunch]) -> dict[str, str]:
@@ -149,6 +159,8 @@ def find_employee_segments(payroll_text: str, employees: list[EmployeeLaunch]) -
     for employee in employees:
         code = str(int(employee.code)) if employee.code.isdigit() else employee.code.lstrip("0")
         first = norm(employee.name).split()[0] if employee.name else ""
+        if not code or not first:
+            continue
         pattern = re.compile(rf"(?<!\d){re.escape(code)}\s*{re.escape(first)}")
         match = pattern.search(compact_norm)
         if match:
@@ -173,6 +185,24 @@ def has_expected_label(segment: str, label: str) -> bool:
     return any(item and item in segment_norm for item in expected)
 
 
+def extract_payroll_event(segment: str, labels: list[str]) -> dict[str, Decimal | None]:
+    segment_norm = norm(segment)
+    positions = [segment_norm.find(norm(label)) for label in labels if norm(label) in segment_norm]
+    positions = [position for position in positions if position >= 0]
+    if not positions:
+        return {"reference": None, "amount": None}
+    position = min(positions)
+    before = segment_norm[max(0, position - 90) : position]
+    numbers = re.findall(r"\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}", before)
+    parsed = [parse_decimal(number) for number in numbers]
+    parsed = [number for number in parsed if number is not None]
+    if len(parsed) >= 2:
+        return {"reference": parsed[-2], "amount": parsed[-1]}
+    if len(parsed) == 1:
+        return {"reference": None, "amount": parsed[-1]}
+    return {"reference": None, "amount": None}
+
+
 def compare_launches(launches: dict[str, Any], payroll_text: str) -> list[dict[str, Any]]:
     employees: list[EmployeeLaunch] = launches["employees"]
     segments = find_employee_segments(payroll_text, employees)
@@ -182,26 +212,31 @@ def compare_launches(launches: dict[str, Any], payroll_text: str) -> list[dict[s
         segment = segments.get(employee.code, "")
         for item in employee.values:
             amount: Decimal = item["amount"]
+            labels = LAUNCH_LABELS.get(norm(item["label"]), [norm(item["label"])])
             amount_found = bool(segment) and has_amount(segment, amount)
             label_found = bool(segment) and has_expected_label(segment, item["label"])
+            payroll_event = extract_payroll_event(segment, labels)
+            payroll_amount = amount if amount_found else payroll_event["amount"]
             if amount_found and label_found:
                 status = "ok"
-                message = "Lançamento encontrado na folha."
+                message = "Lancamento encontrado na folha."
             elif amount_found:
                 status = "warning"
                 message = "Valor encontrado, mas a rubrica pode estar com nome diferente."
             elif not segment:
                 status = "error"
-                message = "Colaborador não localizado na folha."
+                message = "Colaborador nao localizado na folha."
             else:
                 status = "error"
-                message = "Valor não encontrado no demonstrativo do colaborador."
+                message = "Valor nao encontrado no demonstrativo do colaborador."
             results.append(
                 {
                     "code": employee.code,
                     "name": employee.name,
                     "label": item["label"],
                     "amount": money(amount),
+                    "source_amount": money(amount),
+                    "payroll_amount": money(payroll_amount),
                     "status": status,
                     "message": message,
                 }
@@ -217,13 +252,7 @@ def parse_loans(portal_text: str) -> list[dict[str, Any]]:
     )
     for match in pattern.finditer(compact):
         amount = parse_decimal(match.group("value"))
-        loans.append(
-            {
-                "cpf": match.group("cpf"),
-                "contract": match.group("contract"),
-                "amount": amount,
-            }
-        )
+        loans.append({"cpf": match.group("cpf"), "contract": match.group("contract"), "amount": amount})
     return loans
 
 
@@ -253,25 +282,135 @@ def compare_loans(portal_text: str, payroll_text: str) -> list[dict[str, Any]]:
     for loan in grouped.values():
         segment = segments.get(loan["cpf"], "")
         amount = loan["amount"].quantize(Decimal("0.01"))
-        found = bool(segment) and amount is not None and has_amount(segment, amount)
+        found = bool(segment) and has_amount(segment, amount)
         label_ok = "credito do trabalhador" in norm(segment)
+        payroll_event = extract_payroll_event(segment, ["credito do trabalhador"])
+        payroll_amount = amount if found else payroll_event["amount"]
         if found and label_ok:
             status = "ok"
-            message = "Total de empréstimos encontrado na folha."
+            message = "Total de emprestimos encontrado na folha."
         elif found:
             status = "warning"
-            message = "Valor encontrado, mas sem rubrica clara de Crédito do Trabalhador."
+            message = "Valor encontrado, mas sem rubrica clara de Credito do Trabalhador."
         elif not segment:
             status = "error"
-            message = "CPF do portal não localizado na folha."
+            message = "CPF do portal nao localizado na folha."
         else:
             status = "error"
-            message = "Parcela do portal não localizada na folha."
+            message = "Parcela do portal nao localizada na folha."
         results.append(
             {
+                "code": "",
+                "name": loan["cpf"],
                 "cpf": loan["cpf"],
-                "contract": f"{loan['contracts']} contrato(s)",
+                "label": f"Credito do trabalhador ({loan['contracts']} contrato(s))",
                 "amount": money(amount),
+                "source_amount": money(amount),
+                "payroll_amount": money(payroll_amount),
+                "status": status,
+                "message": message,
+            }
+        )
+    return results
+
+
+def parse_time_to_decimal(value: str) -> Decimal:
+    sign = Decimal("-1") if value.startswith("-") else Decimal("1")
+    clean = value.replace("-", "")
+    hours, minutes = clean.split(":", 1)
+    result = Decimal(hours) + (Decimal(minutes) / Decimal("60"))
+    return (result * sign).quantize(Decimal("0.01"))
+
+
+def parse_mirror_events(mirror_text: str) -> list[dict[str, Any]]:
+    events = []
+    chunks = re.split(r"Página\s+\d+\s+de\s+\d+|Pagina\s+\d+\s+de\s+\d+", mirror_text)
+    for chunk in chunks:
+        compact = re.sub(r"\s+", " ", chunk).strip()
+        if not compact:
+            continue
+        employee_match = re.search(
+            r"Funcion.rio\s+(?P<name>.*?)\s+Departamento.*?Matr.cula\s*(?P<code>\d+)",
+            compact,
+            re.IGNORECASE,
+        )
+        if not employee_match:
+            continue
+        name = employee_match.group("name").strip()
+        code = employee_match.group("code").zfill(6)
+        summary_end = compact.find("Conforme demonstrativo")
+        summary = compact[max(0, summary_end - 900) : summary_end] if summary_end >= 0 else compact[-900:]
+        metric_patterns = [
+            ("Feriado trabalhado", r"Feriado trabalhado\s+(\d+)"),
+            ("Horas Noturnas", r"Horas Noturnas\s+(-?\d{2,3}:\d{2})"),
+            ("HE Feriado", r"HE Feriado\s+(-?\d{2,3}:\d{2})"),
+            ("Falta em Dias", r"Falta em Dias\s+(\d+)"),
+            ("Descontos (-) Faltas", r"Descontos\s+\(-\)\s+Faltas\s+(-?\d{2,3}:\d{2})"),
+        ]
+        for label, pattern in metric_patterns:
+            match = re.search(pattern, summary, re.IGNORECASE)
+            if not match:
+                continue
+            raw = match.group(1)
+            value = parse_time_to_decimal(raw) if ":" in raw else Decimal(raw).quantize(Decimal("0.01"))
+            events.append(
+                {
+                    "code": code,
+                    "name": name,
+                    "label": label,
+                    "raw_value": raw,
+                    "value": value,
+                    "value_kind": "hours" if ":" in raw else "count",
+                }
+            )
+        falta_count = len(re.findall(r"\bFALTA\b", compact, re.IGNORECASE))
+        if falta_count:
+            events.append(
+                {
+                    "code": code,
+                    "name": name,
+                    "label": "Faltas",
+                    "raw_value": str(falta_count),
+                    "value": Decimal(falta_count).quantize(Decimal("0.01")),
+                    "value_kind": "count",
+                }
+            )
+    return events
+
+
+def compare_mirror(mirror_text: str, payroll_text: str) -> list[dict[str, Any]]:
+    mirror_events = parse_mirror_events(mirror_text)
+    employees = [EmployeeLaunch(code=event["code"], name=event["name"], values=[]) for event in mirror_events]
+    segments = find_employee_segments(payroll_text, employees)
+    results = []
+    for event in mirror_events:
+        segment = segments.get(event["code"], "")
+        labels = POINT_EVENT_LABELS.get(event["label"], [event["label"]])
+        payroll_event = extract_payroll_event(segment, labels)
+        payroll_reference = payroll_event["reference"]
+        reference_found = payroll_reference is not None and abs(payroll_reference - event["value"]) <= Decimal("0.02")
+        label_found = bool(segment) and any(norm(label) in norm(segment) for label in labels)
+        if reference_found and label_found:
+            status = "ok"
+            message = "Evento de ponto encontrado na folha."
+        elif label_found:
+            status = "warning"
+            message = "Evento localizado, mas a referencia na folha esta diferente."
+        elif not segment:
+            status = "error"
+            message = "Colaborador do espelho nao localizado na folha."
+        else:
+            status = "error"
+            message = "Evento de ponto nao localizado na folha."
+        results.append(
+            {
+                "code": event["code"],
+                "name": event["name"],
+                "label": event["label"],
+                "amount": event["raw_value"],
+                "source_amount": event["raw_value"],
+                "payroll_amount": number_pt(payroll_reference),
+                "payroll_value": money(payroll_event["amount"]),
                 "status": status,
                 "message": message,
             }
@@ -288,10 +427,9 @@ def parse_liquids(payroll_text: str) -> dict[str, dict[str, Any]]:
     liquids = {}
     for match in pattern.finditer(compact):
         code = match.group("code").zfill(6)
-        raw_name = re.sub(r"\s+", " ", match.group("name")).strip()
         value = parse_decimal(match.group("liquid"))
         if value is not None:
-            liquids[code] = {"code": code, "name": raw_name, "liquid": value}
+            liquids[code] = {"code": code, "name": re.sub(r"\s+", " ", match.group("name")).strip(), "liquid": value}
     return liquids
 
 
@@ -319,12 +457,9 @@ def compare_liquids(current_text: str, previous_text: str | None) -> list[dict[s
 def mirror_summary(mirror_text: str | None) -> dict[str, Any] | None:
     if not mirror_text:
         return None
-    employees = len(re.findall(r"\bFuncionário\b", mirror_text))
+    employees = len(re.findall(r"\bFuncion.rio\b", mirror_text))
     period = re.search(r"Referente Espelho de ponto\s+(\d{2}/\d{2}/\d{4}\s+até\s+\d{2}/\d{2}/\d{4})", mirror_text)
-    return {
-        "employees": employees,
-        "period": period.group(1) if period else "Período não identificado",
-    }
+    return {"employees": employees, "period": period.group(1) if period else "Periodo nao identificado"}
 
 
 def save_upload(field: Any, suffix: str) -> Path | None:
@@ -349,7 +484,7 @@ def build_report(form: cgi.FieldStorage) -> dict[str, Any]:
     mirror_path = save_upload(form["mirror"], ".pdf") if "mirror" in form else None
     previous_path = save_upload(form["previous_payroll"], ".pdf") if "previous_payroll" in form else None
     if not launch_path or not payroll_path:
-        raise ValueError("Envie pelo menos a planilha de lançamentos e a folha de pagamento.")
+        raise ValueError("Envie pelo menos a planilha de lancamentos e a folha de pagamento.")
 
     launches = parse_launches(launch_path)
     payroll_text = read_pdf_text(payroll_path)
@@ -359,8 +494,9 @@ def build_report(form: cgi.FieldStorage) -> dict[str, Any]:
 
     launch_results = compare_launches(launches, payroll_text)
     loan_results = compare_loans(loans_text, payroll_text) if loans_text else []
+    mirror_results = compare_mirror(mirror_text, payroll_text) if mirror_text else []
     liquid_results = compare_liquids(payroll_text, previous_text)
-    all_results = launch_results + loan_results
+    all_results = launch_results + loan_results + mirror_results
     totals = {
         "ok": sum(1 for item in all_results if item["status"] == "ok"),
         "warning": sum(1 for item in all_results if item["status"] == "warning"),
@@ -375,6 +511,7 @@ def build_report(form: cgi.FieldStorage) -> dict[str, Any]:
         "totals": totals,
         "launches": launch_results,
         "loans": loan_results,
+        "mirror_checks": mirror_results,
         "liquids": liquid_results,
         "mirror": mirror_summary(mirror_text),
     }

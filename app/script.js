@@ -10,6 +10,8 @@ const warningKpi = document.querySelector("#warningKpi");
 const errorKpi = document.querySelector("#errorKpi");
 const statusList = document.querySelector("#statusList");
 const launchRows = document.querySelector("#launchRows");
+const loanRows = document.querySelector("#loanRows");
+const mirrorRows = document.querySelector("#mirrorRows");
 const exportBtn = document.querySelector("#exportBtn");
 const filterButtons = Array.from(document.querySelectorAll(".filter"));
 
@@ -64,8 +66,16 @@ filterButtons.forEach((button) => {
 exportBtn.addEventListener("click", () => {
   if (currentRows.length === 0) return;
   const csvRows = [
-    ["codigo", "colaborador", "evento", "valor", "status", "observacao"],
-    ...currentRows.map((row) => [row.code, row.name, row.label, row.amount, statusText[row.status], row.message]),
+    ["codigo", "colaborador", "evento", "valor_arquivo", "valor_folha", "status", "observacao"],
+    ...currentRows.map((row) => [
+      row.code,
+      row.name,
+      row.label,
+      row.source_amount || row.amount,
+      row.payroll_amount,
+      statusText[row.status],
+      row.message,
+    ]),
   ];
   const csv = csvRows.map((row) => row.map(csvCell).join(";")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -79,11 +89,13 @@ exportBtn.addEventListener("click", () => {
 function renderReport(report) {
   currentRows = report.launches || [];
   const totals = summarize(currentRows);
+  const loanTotals = summarize(report.loans || []);
+  const mirrorTotals = summarize(report.mirror_checks || []);
   periodKpi.textContent = formatPeriod(report.period);
-  totalKpi.textContent = currentRows.length;
-  okKpi.textContent = totals.ok;
-  warningKpi.textContent = totals.warning;
-  errorKpi.textContent = totals.error;
+  totalKpi.textContent = currentRows.length + (report.loans || []).length + (report.mirror_checks || []).length;
+  okKpi.textContent = totals.ok + loanTotals.ok + mirrorTotals.ok;
+  warningKpi.textContent = totals.warning + loanTotals.warning + mirrorTotals.warning;
+  errorKpi.textContent = totals.error + loanTotals.error + mirrorTotals.error;
   statusList.innerHTML = `
     <div class="status-item">
       <div>
@@ -101,14 +113,34 @@ function renderReport(report) {
         ${totals.error ? `${totals.error} divergencias` : totals.warning ? `${totals.warning} alertas` : "Conferida"}
       </div>
     </div>
+    <div class="status-item">
+      <div>
+        <strong>Emprestimo Governo</strong>
+        <span>${(report.loans || []).length} CPFs analisados</span>
+      </div>
+      <div class="pill ${loanTotals.error ? "pill-erro" : loanTotals.warning ? "pill-alerta" : (report.loans || []).length ? "pill-ok" : "pill-alerta"}">
+        ${(report.loans || []).length ? loanStatusText(loanTotals) : "Nao enviado"}
+      </div>
+    </div>
+    <div class="status-item">
+      <div>
+        <strong>Espelho de Ponto</strong>
+        <span>${(report.mirror_checks || []).length} eventos analisados</span>
+      </div>
+      <div class="pill ${mirrorTotals.error ? "pill-erro" : mirrorTotals.warning ? "pill-alerta" : (report.mirror_checks || []).length ? "pill-ok" : "pill-alerta"}">
+        ${(report.mirror_checks || []).length ? loanStatusText(mirrorTotals) : "Nao enviado"}
+      </div>
+    </div>
   `;
   renderRows();
+  renderSimpleRows(loanRows, report.loans || [], "Nenhum emprestimo para exibir.", true);
+  renderSimpleRows(mirrorRows, report.mirror_checks || [], "Nenhum evento de ponto para exibir.", false);
 }
 
 function renderRows() {
   const rows = currentFilter === "all" ? currentRows : currentRows.filter((row) => row.status === currentFilter);
   if (rows.length === 0) {
-    launchRows.innerHTML = `<tr><td colspan="5" class="empty">Nenhum lancamento para este filtro.</td></tr>`;
+    launchRows.innerHTML = `<tr><td colspan="6" class="empty">Nenhum lancamento para este filtro.</td></tr>`;
     return;
   }
   launchRows.innerHTML = rows
@@ -120,7 +152,32 @@ function renderRows() {
             <span class="sub">Codigo ${escapeHtml(row.code)}</span>
           </td>
           <td>${escapeHtml(row.label)}</td>
-          <td>${escapeHtml(row.amount)}</td>
+          <td>${escapeHtml(row.source_amount || row.amount)}</td>
+          <td>${escapeHtml(row.payroll_amount || "-")}</td>
+          <td><span class="diff ${statusClass(row.status)}">${statusText[row.status]}</span></td>
+          <td>${escapeHtml(row.message)}</td>
+        </tr>
+      `,
+    )
+    .join("");
+}
+
+function renderSimpleRows(target, rows, emptyMessage, useCpf) {
+  if (!rows || rows.length === 0) {
+    target.innerHTML = `<tr><td colspan="6" class="empty">${emptyMessage}</td></tr>`;
+    return;
+  }
+  target.innerHTML = rows
+    .map(
+      (row) => `
+        <tr>
+          <td>
+            <span class="employee">${escapeHtml(useCpf ? row.cpf || row.name : row.name)}</span>
+            <span class="sub">${useCpf ? escapeHtml(row.contract || "") : `Codigo ${escapeHtml(row.code || "")}`}</span>
+          </td>
+          <td>${escapeHtml(row.label)}</td>
+          <td>${escapeHtml(row.source_amount || row.amount)}</td>
+          <td>${escapeHtml(row.payroll_amount || "-")}</td>
           <td><span class="diff ${statusClass(row.status)}">${statusText[row.status]}</span></td>
           <td>${escapeHtml(row.message)}</td>
         </tr>
@@ -137,6 +194,12 @@ function summarize(rows) {
     },
     { ok: 0, warning: 0, error: 0 },
   );
+}
+
+function loanStatusText(totals) {
+  if (totals.error) return `${totals.error} divergencias`;
+  if (totals.warning) return `${totals.warning} alertas`;
+  return "Conferido";
 }
 
 function statusClass(status) {

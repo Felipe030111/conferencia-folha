@@ -334,6 +334,12 @@ main {
   gap: 20px;
 }
 
+.result-panels {
+  display: grid;
+  gap: 20px;
+  margin-top: 20px;
+}
+
 .panel {
   background: white;
   border: 1px solid var(--cinza-borda);
@@ -506,7 +512,8 @@ td {
 
   .process-flow,
   .summary,
-  .content {
+  .content,
+  .result-panels {
     grid-template-columns: 1fr;
   }
 }
